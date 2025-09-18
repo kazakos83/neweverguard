@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState } from 'react'
@@ -8,9 +7,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Send, CheckCircle, AlertCircle } from 'lucide-react'
+import { Send, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
+import { supabase } from '@/lib/supabase'
 
 const ContactForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -34,31 +34,102 @@ const ContactForm = () => {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch('/api/contact', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
+      // Validate required fields
+      if (!formData.name || !formData.email || !formData.message) {
+        toast.error('Please fill in all required fields')
+        return
+      }
+
+      // Generate unique inquiry ID
+      const inquiryId = `INQ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+      // Prepare data for database
+      const inquiryData = {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone || null,
+        company: formData.company || null,
+        service: formData.service || null,
+        urgency: formData.urgency,
+        message: formData.message,
+        budget: formData.budget || null,
+        inquiry_id: inquiryId,
+        status: 'new'
+      }
+
+      // Insert into Supabase database
+      const { data, error: dbError } = await supabase
+        .from('contact_inquiries')
+        .insert([inquiryData])
+        .select()
+
+      if (dbError) {
+        console.error('Database error:', dbError)
+        throw new Error('Failed to save inquiry to database')
+      }
+
+      // Send notification email via Supabase Edge Function
+      const { data: emailData, error: emailError } = await supabase.functions.invoke('send-contact-notification', {
+        body: {
+          ...inquiryData,
+          inquiry_id: inquiryId
+        }
       })
 
-      if (response?.ok) {
-        toast.success('Message sent successfully! We\'ll contact you within 24 hours.')
-        setFormData({
-          name: '',
-          email: '',
-          phone: '',
-          company: '',
-          service: '',
-          urgency: 'medium',
-          message: '',
-          budget: ''
-        })
-      } else {
-        throw new Error('Failed to send message')
+      if (emailError) {
+        console.error('Email error:', emailError)
+        // Don't fail the form submission if email fails, but log it
+        console.warn('Email notification failed, but inquiry was saved to database')
       }
+
+      // Success - show confirmation and reset form
+      toast.success('Message sent successfully! We\'ll contact you within 24 hours.')
+      
+      // Reset form
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        company: '',
+        service: '',
+        urgency: 'medium',
+        message: '',
+        budget: ''
+      })
+
+      // Send client confirmation email (opens email client)
+      const clientEmailSubject = encodeURIComponent(`Thank you for contacting Everguard Intelligence - Reference: ${inquiryId}`)
+      const clientEmailBody = encodeURIComponent(`Dear ${formData.name},
+
+Thank you for contacting Everguard Intelligence. We have received your inquiry regarding ${formData.service ? serviceDisplay : 'our services'} and will respond within 24 hours.
+
+Your Inquiry Details:
+- Reference ID: ${inquiryId}
+- Service: ${serviceDisplay}
+- Priority: ${formData.urgency.charAt(0).toUpperCase() + formData.urgency.slice(1)}
+
+What happens next:
+1. Our team will review your requirements within 2 hours
+2. We'll prepare a detailed proposal and quote
+3. One of our senior investigators will contact you directly
+4. We'll schedule a confidential consultation at your convenience
+
+Need immediate assistance?
+📞 24/7 Emergency Line: 1800-EVERGUARD
+📧 Email: info@everguardgroup.com.au
+
+🔒 Confidentiality Assured: All communications are treated with the strictest confidentiality in accordance with our professional and licensing standards.
+
+Best regards,
+The Everguard Intelligence Team
+Premier Corporate Investigation Services Australia`)
+
+      // Open email client for confirmation (backup method)
+      window.open(`mailto:${formData.email}?subject=${clientEmailSubject}&body=${clientEmailBody}`)
+
     } catch (error) {
-      toast.error('Failed to send message. Please try again or call us directly.')
+      console.error('Form submission error:', error)
+      toast.error('Failed to send message. Please try again or call us directly at 1800-EVERGUARD.')
     } finally {
       setIsSubmitting(false)
     }
@@ -89,8 +160,8 @@ const ContactForm = () => {
                     <Input
                       id="name"
                       type="text"
-                      value={formData?.name || ''}
-                      onChange={(e) => handleInputChange('name', e?.target?.value || '')}
+                      value={formData.name}
+                      onChange={(e) => handleInputChange('name', e.target.value)}
                       required
                       className="pl-4"
                     />
@@ -100,8 +171,8 @@ const ContactForm = () => {
                     <Input
                       id="email"
                       type="email"
-                      value={formData?.email || ''}
-                      onChange={(e) => handleInputChange('email', e?.target?.value || '')}
+                      value={formData.email}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
                       required
                       className="pl-4"
                     />
@@ -114,8 +185,8 @@ const ContactForm = () => {
                     <Input
                       id="phone"
                       type="tel"
-                      value={formData?.phone || ''}
-                      onChange={(e) => handleInputChange('phone', e?.target?.value || '')}
+                      value={formData.phone}
+                      onChange={(e) => handleInputChange('phone', e.target.value)}
                       className="pl-4"
                     />
                   </div>
@@ -124,8 +195,8 @@ const ContactForm = () => {
                     <Input
                       id="company"
                       type="text"
-                      value={formData?.company || ''}
-                      onChange={(e) => handleInputChange('company', e?.target?.value || '')}
+                      value={formData.company}
+                      onChange={(e) => handleInputChange('company', e.target.value)}
                       className="pl-4"
                     />
                   </div>
@@ -134,7 +205,7 @@ const ContactForm = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="service">Service Required</Label>
-                    <Select value={formData?.service || ''} onValueChange={(value) => handleInputChange('service', value)}>
+                    <Select value={formData.service} onValueChange={(value) => handleInputChange('service', value)}>
                       <SelectTrigger className="bg-white border-gray-300">
                         <SelectValue placeholder="Select a service" />
                       </SelectTrigger>
@@ -151,7 +222,7 @@ const ContactForm = () => {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="urgency">Urgency Level</Label>
-                    <Select value={formData?.urgency || 'medium'} onValueChange={(value) => handleInputChange('urgency', value)}>
+                    <Select value={formData.urgency} onValueChange={(value) => handleInputChange('urgency', value)}>
                       <SelectTrigger className="bg-white border-gray-300">
                         <SelectValue />
                       </SelectTrigger>
@@ -167,7 +238,7 @@ const ContactForm = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="budget">Estimated Budget (Optional)</Label>
-                  <Select value={formData?.budget || ''} onValueChange={(value) => handleInputChange('budget', value)}>
+                  <Select value={formData.budget} onValueChange={(value) => handleInputChange('budget', value)}>
                     <SelectTrigger className="bg-white border-gray-300">
                       <SelectValue placeholder="Select budget range" />
                     </SelectTrigger>
@@ -187,8 +258,8 @@ const ContactForm = () => {
                   <Textarea
                     id="message"
                     rows={5}
-                    value={formData?.message || ''}
-                    onChange={(e) => handleInputChange('message', e?.target?.value || '')}
+                    value={formData.message}
+                    onChange={(e) => handleInputChange('message', e.target.value)}
                     placeholder="Please provide details about your investigation requirements, including any specific objectives, timelines, or special considerations..."
                     required
                     className="pl-4"
