@@ -3,11 +3,9 @@ const path = require('path');
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
-  output: 'export',
-  trailingSlash: true,
-  images: { 
-    unoptimized: true,
-    domains: ['images.pexels.com']
+  output: process.env.NEXT_OUTPUT_MODE,
+  experimental: {
+    outputFileTracingRoot: path.join(__dirname, '../'),
   },
   eslint: {
     ignoreDuringBuilds: true,
@@ -15,9 +13,7 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  experimental: {
-    outputFileTracingRoot: path.join(__dirname, '../'),
-  },
+  images: { unoptimized: true },
 };
 
 module.exports = nextConfig;
